@@ -323,6 +323,9 @@
 
   <div id="printArea"></div>
 
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
   <script>
     // Même étiquette que la toute première version publiée sur GitHub Pages,
     // pour continuer à lire le catalogue déjà enregistré par l'utilisateur
@@ -330,6 +333,19 @@
     const STORAGE_KEY_CARDS = 'courses_v21_cards';
     const STORAGE_KEY_AISLES = 'courses_v21_aisles';
     const STORAGE_KEY_STORES = 'courses_v21_stores';
+
+    // Base de données partagée du foyer (Firebase Realtime Database)
+    const firebaseConfig = {
+      apiKey: "AIzaSyCr17tGRA0Tc2PepLdb5tChwWrNKfMRR7A",
+      authDomain: "mes-courses-2b57c.firebaseapp.com",
+      databaseURL: "https://mes-courses-2b57c-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "mes-courses-2b57c",
+      storageBucket: "mes-courses-2b57c.firebasestorage.app",
+      messagingSenderId: "148569021150",
+      appId: "1:148569021150:web:818a71fe9b7362ab98c04f"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const fbDB = firebase.database();
 
     const defaultStores = ['E.Leclerc', 'Lidl', 'Grand Frais', 'dm-drogerie', 'Thiriet', 'Autre magasin'];
 
@@ -392,34 +408,36 @@
     window.curSub = 'ALL';
     window.lastItem = null;
 
-    // localStorage : fonctionne réellement sur une page hébergée (GitHub Pages),
-    // contrairement au stockage précédent qui ne marchait que dans Claude.
-    // Limite actuelle : chaque appareil garde sa propre copie (pas de partage
-    // automatique entre plusieurs personnes tant que Firebase n'est pas branché).
+    // localStorage = copie locale immédiate (fonctionne même hors ligne)
+    // Firebase = copie partagée, synchronisée en temps réel avec tout le foyer
     window.saveState = async function() {
+      try { localStorage.setItem(STORAGE_KEY_PRODS, JSON.stringify(window.prods)); } catch(e) {}
       try {
-        localStorage.setItem(STORAGE_KEY_PRODS, JSON.stringify(window.prods));
+        await fbDB.ref('prods').set(JSON.stringify(window.prods));
         return true;
       } catch(e) { return false; }
     };
 
     window.saveCards = async function() {
+      try { localStorage.setItem(STORAGE_KEY_CARDS, JSON.stringify(window.cards)); } catch(e) {}
       try {
-        localStorage.setItem(STORAGE_KEY_CARDS, JSON.stringify(window.cards));
+        await fbDB.ref('cards').set(JSON.stringify(window.cards));
         return true;
       } catch(e) { return false; }
     };
 
     window.saveAisles = async function() {
+      try { localStorage.setItem(STORAGE_KEY_AISLES, JSON.stringify(window.AISLES)); } catch(e) {}
       try {
-        localStorage.setItem(STORAGE_KEY_AISLES, JSON.stringify(window.AISLES));
+        await fbDB.ref('aisles').set(JSON.stringify(window.AISLES));
         return true;
       } catch(e) { return false; }
     };
 
     window.saveStores = async function() {
+      try { localStorage.setItem(STORAGE_KEY_STORES, JSON.stringify(window.STORES)); } catch(e) {}
       try {
-        localStorage.setItem(STORAGE_KEY_STORES, JSON.stringify(window.STORES));
+        await fbDB.ref('stores').set(JSON.stringify(window.STORES));
         return true;
       } catch(e) { return false; }
     };
@@ -1197,12 +1215,53 @@
       if (stored) window.STORES = JSON.parse(stored);
     } catch(e) {}
 
-    // Démarrage : affichage avec les données récupérées (ou par défaut si première visite)
+    // Démarrage : affichage immédiat avec les données locales (ou par défaut si première visite)
     window.renderFilterBar();
     window.renderStoreOptions();
     window.renderCourses();
     window.renderCatalog();
     window.renderCards();
+
+    // Puis connexion au foyer partagé : si Firebase a déjà des données, on les
+    // adopte ; sinon on y envoie ce qu'on a localement (première synchro).
+    // Ensuite, on reste à l'écoute en temps réel des changements des autres appareils.
+    window.syncWithFirebase = function(key, storageKey, apply) {
+      fbDB.ref(key).once('value').then((snap) => {
+        const val = snap.val();
+        if (val) {
+          try { apply(JSON.parse(val)); } catch(e) {}
+        } else {
+          try {
+            const local = localStorage.getItem(storageKey);
+            if (local) fbDB.ref(key).set(local);
+          } catch(e) {}
+        }
+        fbDB.ref(key).on('value', (snap2) => {
+          const v2 = snap2.val();
+          if (v2) { try { apply(JSON.parse(v2)); } catch(e) {} }
+        });
+      }).catch(() => {});
+    };
+
+    window.syncWithFirebase('prods', STORAGE_KEY_PRODS, (data) => {
+      window.prods = data;
+      window.renderCourses();
+      window.renderCatalog();
+    });
+    window.syncWithFirebase('cards', STORAGE_KEY_CARDS, (data) => {
+      window.cards = data;
+      window.renderCards();
+    });
+    window.syncWithFirebase('aisles', STORAGE_KEY_AISLES, (data) => {
+      window.AISLES = data;
+      window.renderCatalog();
+      window.renderCourses();
+    });
+    window.syncWithFirebase('stores', STORAGE_KEY_STORES, (data) => {
+      window.STORES = data;
+      window.renderFilterBar();
+      window.renderStoreOptions();
+    });
   </script>
 </body>
 </html>
